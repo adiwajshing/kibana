@@ -6,11 +6,14 @@
  * Side Public License, v 1.
  */
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { css } from '@emotion/css';
 import { EuiButtonIcon, EuiText } from '@elastic/eui';
 import { euiThemeVars } from '@kbn/ui-theme';
-import type { DataGridCellValueElementProps } from '@kbn/unified-data-table';
+import {
+  JSONCodeEditorCommonMemoized,
+  type DataGridCellValueElementProps,
+} from '@kbn/unified-data-table';
 import {
   getLogDocumentOverview,
   getMessageFieldWithFallbacks,
@@ -19,6 +22,7 @@ import {
 import { i18n } from '@kbn/i18n';
 import type { DataTableRecord } from '@kbn/discover-utils/src/types';
 import { dynamic } from '@kbn/shared-ux-utility';
+import type { monaco } from 'react-monaco-editor';
 import * as constants from '../../../../../common/data_types/logs/constants';
 import { LogLevel } from '../../../data_types/logs/log_level';
 
@@ -35,14 +39,62 @@ const sourceDocumentClassName = css`
   margin-left: ${euiThemeVars.euiSizeXS};
 `;
 
+// renders a pretty printed JSON that resizes the height of the editor
+// to fit the content
+const JsonMessage = ({ jsonStr }: { jsonStr: string }) => {
+  const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const [editorHeight, setEditorHeight] = useState<number>();
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+
+    const disp = editor.onDidContentSizeChange((ev) => {
+      setEditorHeight(ev.contentHeight);
+    });
+    return () => {
+      disp?.dispose();
+    };
+  }, [editor]);
+
+  return (
+    <JSONCodeEditorCommonMemoized
+      jsonValue={jsonStr}
+      height={editorHeight ? `${editorHeight}px` : 'auto'}
+      width="100%"
+      hasLineNumbers={false}
+      onEditorDidMount={(e) => {
+        setEditorHeight(e.getContentHeight());
+        setEditor(e);
+      }}
+      hideCopyButton
+    />
+  );
+};
+
 const LogMessage = ({ field, value }: { field?: string; value: string }) => {
   const renderFieldPrefix = field && field !== constants.MESSAGE_FIELD;
+
+  const { isJson, value: valueObj } = useMemo(() => {
+    try {
+      const obj = JSON.parse(value);
+      return { isJson: true, value: JSON.stringify(obj, null, 2) };
+    } catch (err) {
+      return { isJson: false, value };
+    }
+  }, [value]);
+
   return (
     <EuiText size="xs" style={{ display: 'inline', marginLeft: '5px' }}>
       {renderFieldPrefix && <strong data-test-subj="discoverDataTableMessageKey">{field}</strong>}
-      <span data-test-subj="discoverDataTableMessageValue" style={{ marginLeft: '5px' }}>
-        {value}
-      </span>
+      {isJson ? (
+        <JsonMessage jsonStr={valueObj} />
+      ) : (
+        <span data-test-subj="discoverDataTableMessageValue" style={{ marginLeft: '5px' }}>
+          {valueObj}
+        </span>
+      )}
     </EuiText>
   );
 };
